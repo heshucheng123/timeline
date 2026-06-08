@@ -1,15 +1,10 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
+<base href="/timeline/">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>我的大学成长时间轴｜日程时间轴版</title>
-<link rel="manifest" href="/manifest.json">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="成长时间轴">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#6366f1">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --p:#6366f1;--p2:#8b5cf6;--pink:#ec4899;--mint:#10b981;--cyan:#06b6d4;--orange:#f97316;--yellow:#f59e0b;--red:#ef4444;
@@ -359,18 +354,6 @@ section.active{display:block}
  .hex-row.even{transform:none}
  .home-tools .tool-card{min-height:unset}
 }
-/* iOS 安全区域适配 */
-@supports(padding-bottom:env(safe-area-inset-bottom)){
- .app{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
- .tabs{padding-bottom:calc(6px + env(safe-area-inset-bottom))}
-}
-/* 触摸优化 */
-@media(max-width:900px){
- *{-webkit-tap-highlight-color:transparent}
- .task-card:active{transform:scale(.97);transition:transform .1s}
- .btn:active,.icon-btn:active{transform:scale(.95)}
- input,textarea,select{font-size:16px}
-}
 </style>
 </head>
 <body>
@@ -500,11 +483,6 @@ section.active{display:block}
       <div class="flex gap wrap"><button class="btn" onclick="exportData(false)">导出数据</button><button class="btn" onclick="document.getElementById('importFile').click()">导入数据</button><button class="btn btn-danger" onclick="resetAllData()">重置全部数据</button></div>
       <input id="importFile" type="file" accept=".json" class="hidden" onchange="importData(event)">
     </div>
-    <div class="card col-6">
-      <h2>☁️ 云同步</h2>
-      <div id="syncStatus" style="margin-bottom:12px"></div>
-      <button class="btn btn-p" onclick="forceSync()">立即同步</button>
-    </div>
   </div>
 </section>
 </div>
@@ -522,89 +500,14 @@ const THEMES=['theme-0','theme-1','theme-2','theme-3','theme-4','theme-5'];
 const HEX_GRADS=[
  'linear-gradient(135deg,#6366f1,#8b5cf6)','linear-gradient(135deg,#06b6d4,#3b82f6)','linear-gradient(135deg,#10b981,#06b6d4)','linear-gradient(135deg,#f97316,#ec4899)','linear-gradient(135deg,#f59e0b,#ef4444)','linear-gradient(135deg,#8b5cf6,#ec4899)'
 ];
-// ============ Supabase 配置（单用户，直连模式）============
-const SUPABASE_URL='https://mdoiahwjhgomospwdaiu.supabase.co';
-const SUPABASE_KEY='sb_publishable_lSneKXxjE5xghFC_pdXuXA_oricgYO1';
-const MY_USER_ID='05d13042-b79c-40d1-9990-1f89cb4813b8';
-let supabase=null;
-let realtimeSubscription=null;
-
-function initSupabase(){
-  try{supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){console.warn('Supabase 初始化失败，使用本地模式:',e);supabase=null}
-}
-
-// 云端读取
-async function loadFromCloud(){
-  const {data,error}=await supabase
-    .from('app_state')
-    .select('data,version')
-    .eq('user_id',MY_USER_ID)
-    .single();
-  if(error&&error.code!=='PGRST116'){console.error('云端读取失败:',error);return null}
-  if(data){
-    const local=loadLocal();
-    const localVersion=local?._version||0;
-    if(data.version>localVersion){
-      const merged={...data.data,_version:data.version};
-      localStorage.setItem(KEY,JSON.stringify(merged));
-      S=merged;
-      renderAll();
-      return merged;
-    }
-    S._version=data.version;
-  }
-  return null;
-}
-
-// 云端写入
-async function saveToCloud(){
-  S._version=(S._version||0)+1;
-  S._updatedAt=new Date().toISOString();
-  const {error}=await supabase
-    .from('app_state')
-    .upsert({id:1,user_id:MY_USER_ID,data:S,version:S._version},{onConflict:'id,user_id'});
-  if(error){console.error('云端保存失败:',error);await loadFromCloud();return false}
-  return true;
-}
-
-// 实时同步
-function subscribeToChanges(){
-  realtimeSubscription=supabase
-    .channel('app_state_changes')
-    .on('postgres_changes',
-      {event:'UPDATE',schema:'public',table:'app_state',filter:`user_id=eq.${MY_USER_ID}`},
-      (payload)=>{
-        const remote=payload.new;
-        if(remote.version>(S._version||0)){
-          S={...remote.data,_version:remote.version};
-          localStorage.setItem(KEY,JSON.stringify(S));
-          renderAll();
-          toast('📲 数据已从云端同步');
-        }
-      }
-    )
-    .subscribe((status)=>{
-      if(status==='SUBSCRIBED')console.log('✅ 实时同步已连接');
-      if(status==='CLOSED'){console.warn('⚠️ 同步断开，5秒重连');setTimeout(subscribeToChanges,5000)}
-      if(status==='CHANNEL_ERROR'){console.error('❌ 同步错误');setTimeout(subscribeToChanges,5000)}
-    });
-}
-
-function unsubscribeAll(){
-  if(realtimeSubscription){supabase.removeChannel(realtimeSubscription);realtimeSubscription=null}
-}
-
-// 极简进入
-// ============ 原有代码继续 ============
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
 function today(){return new Date().toISOString().slice(0,10)}
 function nowISO(){return new Date().toISOString()}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
 function dateCN(d){if(!d)return '未定日期';let x=new Date(d+'T00:00');if(isNaN(x))return d;return (x.getMonth()+1)+'月'+x.getDate()+'日'}
 function fullCN(iso){let d=new Date(iso);return isNaN(d)?'':`${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`}
-function loadLocal(){try{return JSON.parse(localStorage.getItem(KEY))||null}catch(e){return null}}
-function save(){S._version=(S._version||0)+1;localStorage.setItem(KEY,JSON.stringify(S));if(currentUser)saveToCloud().catch(e=>console.warn('后台同步失败:',e))}
-function load(){let local=loadLocal();if(local){S=local;return S}S=null;return S}
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||null}catch(e){return null}}
+function save(){localStorage.setItem(KEY,JSON.stringify(S))}
 function defaults(){return {
   hero:{...DEFAULT_HERO},
   qwen:{enabled:false,apiKey:'',model:'qwen-plus',apiUrl:'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'},
@@ -880,36 +783,7 @@ function renderAll(){renderHero();renderTasks();renderHomeTools();renderDashboar
 searchInput.addEventListener('input',runSearch);
 searchInput.addEventListener('focus',runSearch);
 document.addEventListener('click',e=>{if(!e.target.closest('.global-search'))searchResults.classList.remove('show')});
-
-/* ========== 同步辅助 ========== */
-async function forceSync(){
-  await saveToCloud();
-  await loadFromCloud();
-  updateSyncStatus();
-  toast('同步完成');
-}
-function updateSyncStatus(){
-  const el=document.getElementById('syncStatus');
-  if(!el)return;
-  el.innerHTML=`<span class="tag t-green">● 云端同步</span><br><small style="color:var(--muted)">版本: ${S._version||0}</small>`;
-}
-const _origRenderAll=renderAll;
-renderAll=function(){_origRenderAll();updateSyncStatus()};
-
-/* Service Worker */
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js');
-}
-
-/* 启动：本地数据立即可用，云端后台同步 */
-initSupabase();
-S=loadLocal()||defaults();
-migrate();
 renderAll();
-// 后台尝试云端同步，失败不影响使用
-if(supabase){
-  loadFromCloud().then(()=>{subscribeToChanges();renderAll()}).catch(()=>{});
-}
 </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
