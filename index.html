@@ -374,21 +374,6 @@ section.active{display:block}
 </style>
 </head>
 <body>
-<!-- 登录浮层 -->
-<div id="authOverlay" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,#667eea,#764ba2,#f093fb);display:flex;align-items:center;justify-content:center">
- <div style="background:#fff;border-radius:28px;padding:32px;width:min(420px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.15)">
-  <h2 style="margin:0 0 6px">🔐 我的大学成长时间轴</h2>
-  <p style="color:#64748b;margin:0 0 20px">登录后数据自动同步到手机与电脑</p>
-  <div class="fg"><label>邮箱</label><input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email"></div>
-  <div class="fg"><label>密码</label><input id="authPassword" type="password" placeholder="······" autocomplete="current-password"></div>
-  <div class="flex gap" style="margin-top:16px">
-   <button class="btn btn-p" onclick="handleLogin()" style="flex:1">登录</button>
-   <button class="btn" onclick="handleSignup()" style="flex:1">注册</button>
-  </div>
-  <p id="authMsg" style="color:#ef4444;font-size:13px;margin:12px 0 0"></p>
-  <button class="btn btn-sm" style="margin-top:8px;width:100%" onclick="continueOffline()">跳过登录，本地使用</button>
- </div>
-</div>
 <div class="app">
 <header class="hero" id="hero">
   <div class="hero-bg" id="heroBg"></div>
@@ -518,7 +503,7 @@ section.active{display:block}
     <div class="card col-6">
       <h2>☁️ 云同步</h2>
       <div id="syncStatus" style="margin-bottom:12px"></div>
-      <div class="flex gap wrap"><button class="btn btn-p" id="btnSyncNow" onclick="forceSync()">立即同步</button><button class="btn btn-danger" onclick="handleLogout()">退出登录</button></div>
+      <button class="btn btn-p" onclick="forceSync()">立即同步</button>
     </div>
   </div>
 </section>
@@ -537,52 +522,23 @@ const THEMES=['theme-0','theme-1','theme-2','theme-3','theme-4','theme-5'];
 const HEX_GRADS=[
  'linear-gradient(135deg,#6366f1,#8b5cf6)','linear-gradient(135deg,#06b6d4,#3b82f6)','linear-gradient(135deg,#10b981,#06b6d4)','linear-gradient(135deg,#f97316,#ec4899)','linear-gradient(135deg,#f59e0b,#ef4444)','linear-gradient(135deg,#8b5cf6,#ec4899)'
 ];
-// ============ Supabase 配置 ============
+// ============ Supabase 配置（单用户，直连模式）============
 const SUPABASE_URL='https://mdoiahwjhgomospwdaiu.supabase.co';
-const SUPABASE_ANON_KEY='sb_publishable_lSneKXxjE5xghFC_pdXuXA_oricgYO1';
+const SUPABASE_KEY='sb_publishable_lSneKXxjE5xghFC_pdXuXA_oricgYO1';
+const MY_USER_ID='05d13042-b79c-40d1-9990-1f89cb4813b8';
 let supabase=null;
-let currentUser=null;
 let realtimeSubscription=null;
 
 function initSupabase(){
-  supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-}
-
-// 登录
-async function login(email,password){
-  const {data,error}=await supabase.auth.signInWithPassword({email,password});
-  if(error)throw error;
-  currentUser=data.user;
-  await loadFromCloud();
-  subscribeToChanges();
-}
-
-// 注册
-async function signup(email,password){
-  const {data,error}=await supabase.auth.signUp({email,password});
-  if(error)throw error;
-  currentUser=data.user;
-}
-
-// 会话恢复
-async function restoreSession(){
-  try{
-    const {data:{session}}=await supabase.auth.getSession();
-    if(session){
-      currentUser=session.user;
-      await loadFromCloud();
-      subscribeToChanges();
-    }
-  }catch(e){console.warn('会话恢复失败:',e)}
+  supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 }
 
 // 云端读取
 async function loadFromCloud(){
-  if(!currentUser)return null;
   const {data,error}=await supabase
     .from('app_state')
     .select('data,version')
-    .eq('user_id',currentUser.id)
+    .eq('user_id',MY_USER_ID)
     .single();
   if(error&&error.code!=='PGRST116'){console.error('云端读取失败:',error);return null}
   if(data){
@@ -602,27 +558,21 @@ async function loadFromCloud(){
 
 // 云端写入
 async function saveToCloud(){
-  if(!currentUser)return;
   S._version=(S._version||0)+1;
   S._updatedAt=new Date().toISOString();
   const {error}=await supabase
     .from('app_state')
-    .upsert({id:1,user_id:currentUser.id,data:S,version:S._version},{onConflict:'id,user_id'});
+    .upsert({id:1,user_id:MY_USER_ID,data:S,version:S._version},{onConflict:'id,user_id'});
   if(error){console.error('云端保存失败:',error);await loadFromCloud();return false}
-  await supabase.from('sync_log').insert({
-    user_id:currentUser.id,version:S._version,
-    changed_by:/Mobi|Android/i.test(navigator.userAgent)?'mobile':'desktop'
-  });
   return true;
 }
 
 // 实时同步
 function subscribeToChanges(){
-  if(!currentUser)return;
   realtimeSubscription=supabase
     .channel('app_state_changes')
     .on('postgres_changes',
-      {event:'UPDATE',schema:'public',table:'app_state',filter:`user_id=eq.${currentUser.id}`},
+      {event:'UPDATE',schema:'public',table:'app_state',filter:`user_id=eq.${MY_USER_ID}`},
       (payload)=>{
         const remote=payload.new;
         if(remote.version>(S._version||0)){
@@ -644,16 +594,7 @@ function unsubscribeAll(){
   if(realtimeSubscription){supabase.removeChannel(realtimeSubscription);realtimeSubscription=null}
 }
 
-// 启动流程
-async function bootstrap(){
-  initSupabase();
-  await restoreSession();
-  if(currentUser){authOverlay.style.display='none';toast('欢迎回来，数据已同步')}
-  S=loadLocal()||defaults();
-  migrate();
-  renderAll();
-}
-
+// 极简进入
 // ============ 原有代码继续 ============
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
 function today(){return new Date().toISOString().slice(0,10)}
@@ -940,45 +881,8 @@ searchInput.addEventListener('input',runSearch);
 searchInput.addEventListener('focus',runSearch);
 document.addEventListener('click',e=>{if(!e.target.closest('.global-search'))searchResults.classList.remove('show')});
 
-/* ========== Auth 处理函数 ========== */
-async function handleLogin(){
-  try{
-    authMsg.textContent='';
-    await login(authEmail.value.trim(),authPassword.value);
-    authOverlay.style.display='none';
-    toast('登录成功，数据已同步');
-    renderAll();
-  }catch(e){
-    authMsg.textContent='登录失败: '+(e.message||'请检查邮箱密码');
-  }
-}
-async function handleSignup(){
-  try{
-    authMsg.textContent='';
-    await signup(authEmail.value.trim(),authPassword.value);
-    toast('注册成功！正在登录...');
-    await handleLogin();
-  }catch(e){
-    authMsg.textContent='注册失败: '+e.message;
-  }
-}
-function continueOffline(){
-  authOverlay.style.display='none';
-  S=loadLocal()||defaults();
-  migrate();
-  renderAll();
-}
-async function handleLogout(){
-  if(currentUser){
-    await supabase.auth.signOut();
-    unsubscribeAll();
-    currentUser=null;
-  }
-  authOverlay.style.display='flex';
-  toast('已退出登录，数据保留在本地');
-}
+/* ========== 同步辅助 ========== */
 async function forceSync(){
-  if(!currentUser)return toast('请先登录');
   await saveToCloud();
   await loadFromCloud();
   updateSyncStatus();
@@ -987,17 +891,8 @@ async function forceSync(){
 function updateSyncStatus(){
   const el=document.getElementById('syncStatus');
   if(!el)return;
-  if(currentUser){
-    el.innerHTML=`<span class="tag t-green">● 已连接</span> <small>${currentUser.email}</small><br><small style="color:var(--muted)">版本: ${S._version||0}</small>`;
-    const btn=document.getElementById('btnSyncNow');
-    if(btn)btn.style.display='';
-  }else{
-    el.innerHTML='<span class="tag t-gray">○ 未登录</span><br><small style="color:var(--muted)">使用本地存储</small>';
-    const btn=document.getElementById('btnSyncNow');
-    if(btn)btn.style.display='none';
-  }
+  el.innerHTML=`<span class="tag t-green">● 云端同步</span><br><small style="color:var(--muted)">版本: ${S._version||0}</small>`;
 }
-// 渲染时更新同步状态
 const _origRenderAll=renderAll;
 renderAll=function(){_origRenderAll();updateSyncStatus()};
 
@@ -1006,8 +901,11 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js');
 }
 
-/* 启动 */
-bootstrap();
+/* 启动：直接进入 */
+initSupabase();
+S=loadLocal()||defaults();
+migrate();
+loadFromCloud().then(()=>{subscribeToChanges();renderAll()});
 </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
