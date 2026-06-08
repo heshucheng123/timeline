@@ -779,6 +779,14 @@ function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader
 function resetAllData(){if(confirm('确定重置全部数据吗？此操作不可恢复')){localStorage.removeItem(KEY);S=defaults();save();renderAll();toast('已重置')}}
 
 /* render all */
+function loadQwenToForm(){
+  if(document.getElementById('qwenEnabled')){
+    document.getElementById('qwenEnabled').value = String(S.qwen.enabled);
+    document.getElementById('qwenKey').value = S.qwen.apiKey;
+    document.getElementById('qwenModel').value = S.qwen.model;
+    document.getElementById('qwenUrl').value = S.qwen.apiUrl;
+  }
+}
 function renderAll(){renderHero();renderTasks();renderHomeTools();renderDashboard();renderCertContest();renderNotes();renderAbilities();renderMonthly();loadQwenToForm()}
 searchInput.addEventListener('input',runSearch);
 searchInput.addEventListener('focus',runSearch);
